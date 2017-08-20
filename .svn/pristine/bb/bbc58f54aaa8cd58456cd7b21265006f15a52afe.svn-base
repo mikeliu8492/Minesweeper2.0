@@ -1,0 +1,1053 @@
+package GameBackend;
+
+import Driver.*;
+
+import javax.imageio.ImageIO;
+import javax.swing.*;
+import javax.swing.event.AncestorListener;
+
+import java.awt.*;
+import java.awt.event.ActionListener;
+import java.awt.event.InputEvent;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.IOException;
+import java.awt.event.ActionEvent;
+
+
+import javax.imageio.ImageIO;
+import javax.swing.*;
+import javax.swing.border.Border;
+import java.awt.*;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.IOException;
+import java.util.*;
+
+import static javax.swing.SwingUtilities.isLeftMouseButton;
+import static javax.swing.SwingUtilities.isRightMouseButton;
+
+
+
+public class Screen 
+{
+	//Overall screen of game
+	private JFrame gameScreen;
+	private BoardVisual boardVisual;
+	
+	//backend game session
+	public Game currentSession;
+	
+	
+	//Tracks overall wins/loss for the opened session
+	private int wins = 0;
+	private int losses = 0;
+	
+	//tracks the weighted score
+	private double trackedScore = 0;
+	
+	
+	/**
+	 * Dimension constants
+	 */
+	
+	public static Dimension OUTSIDE_BORDER = new Dimension(2000, 2000);
+	
+	//will vary depending on # of tiles
+	public static Dimension BOARD_SIZE;
+	public static int TILE_SIDE_LENGTH = 20;
+	public static Dimension SIDEBAR_SIZE = new Dimension(640, 160); 
+	public static Dimension SIDEBAR_BUTTON_SIZE = new Dimension(160, 20);
+
+	
+	//path to pictures
+	private static String imagePath = "..\\Final1\\Pictures\\";
+
+	//rows, columns, mines for custom games
+	private int CUSTOM_ROWS;
+	private int CUSTOM_COLUMNS;
+	private int CUSTOM_MINES;
+	
+	//frame to place input fields for creating the custom game
+	private JFrame customMaker;
+	
+	/**
+	 * Scoring constants
+	 */
+	
+	/**
+	 * Game type is set based on the following:
+	 * 1) Beginner
+	 * 2) Intermediate
+	 * 3) Expert
+	 * 4) Custom
+	 */
+	private int GAME_TYPE = 1;
+	
+	/**
+	 * Maximum allowable time for earning additional points in milliseconds for each
+	 * difficulty level
+	 */
+	private int MAX_BEGINNER_TIME = 60000;
+	private int MAX_INTERMEDIATE_TIME = 240000;
+	private int MAX_EXPERT_TIME = 480000;
+	
+	//base rate for game win
+	private double BEGINNER_WIN_BASE = 4;
+	private double INTERMEDIATE_WIN_BASE = 9;
+	private double EXPERT_WIN_BASE = 18;
+	
+	
+	//bonus weight for game win
+	private double BEGINNER_WIN_WEIGHT = 6;
+	private double INTERMEDIATE_WIN_WEIGHT = 12;
+	private double EXPERT_WIN_WEIGHT = 22;
+	
+	
+	//penalty for loss
+	private double BEGINNER_PENALTY = -5;
+	private double INTERMEDIATE_PENALTY = -10;
+	private double EXPERT_PENALTY = -20;
+	
+	
+	
+	
+	//start time for each session to keep track of score
+	private long startTime = 0;
+	
+	
+	//sidebar for GUI
+	private JPanel sideBar;
+	
+	
+	//show how many flags are available to place
+	private JLabel flagsAvailable;
+	
+	//show how much time has elapsed in seconds since start of current game
+	private JLabel myTimer;
+	
+	
+	
+	
+	/**
+	 * Gui wrapper for if the game is over
+	 * @return if a "game over" condition is met (more of that in the Game class)
+	 */
+	public boolean gameOver()
+	{
+		return currentSession.gameOver();
+	}
+	
+	/**
+	 * Initialize the board
+	 * @param option
+	 */
+	
+	public Screen(int option)
+	{
+		this.initializeSession(option);
+	}
+	
+	
+	/**
+	 * Wrapper to initialize the board or reset the board
+	 * @param option
+	 */
+	private void initializeSession(int option)
+	{
+		this.currentSession = new Game(option);
+		this.GAME_TYPE = option;
+		this.startTime = System.currentTimeMillis();
+		this.gameScreen = new JFrame("Mike Liu Minesweeper");
+		this.gameScreen.setLayout(new BorderLayout());
+		
+		final JMenuBar screenBar = new JMenuBar();
+		
+		this.gameScreen.setJMenuBar(screenBar);
+		this.gameScreen.setVisible(true);
+		
+		
+		this.gameScreen.setSize(OUTSIDE_BORDER);
+		
+		this.boardVisual = new BoardVisual(currentSession.getRows(), currentSession.getColumns());
+		this.flagsAvailable = new JLabel("Flags Available:  "  + currentSession.getRemainingFlags());
+		this.myTimer = new JLabel("Time:  " + (System.currentTimeMillis() - this.startTime)/1000);
+		
+		
+		createSideBar();
+		this.gameScreen.add(this.sideBar, BorderLayout.EAST);
+		this.gameScreen.add(this.boardVisual, BorderLayout.CENTER);
+	}
+	
+	
+	/**
+	 * Create a JFrame that allows you to customize your minesweeper settings per constraints.
+	 * listed in the functionality below (see allValidIntegers() function).
+	 * 
+	 * First it parses the input to determine if they are all valid integers.
+	 * Then it checks the integers to determine if constraint is met.
+	 * 
+	 * The text in the boxes tell you the constraints in ghost text.  Once you click it to enter text,
+	 * the ghost text will disappear.
+	 * 
+	 * If you click OK and constraints are NOT met, nothing happens and boxes redisplay constraint reminders.
+	 * If you click OK and constraints are met, then the game is reset to you custom state.
+	 * 
+	 * If you click CANCEL, the previous game will continue.
+	 * 
+	 * 
+	 * Overall Design of Jpanel for Custom settings based on concepts on this StackOverflow thread:
+	 * http://stackoverflow.com/questions/34186291/how-do-i-lay-out-input-panel-with-multiple-textfields-and-ok-cancel-buttons 
+	 * 
+	 * The TextPrompt.java Source Code was obtained from this site (and credited as such for helping with something really cool):
+	 * https://tips4java.wordpress.com/2009/11/29/text-prompt/
+	 * 
+	 */
+	public void showCustomSetter()
+	{
+		this.customMaker = new JFrame("Your Custom Settings");
+		
+        JPanel infoSend = new JPanel();
+        JPanel requestInformation = new JPanel();
+
+        JLabel rows = new JLabel("Rows");
+        JLabel columns = new JLabel("Columns");
+        JLabel mines = new JLabel("Rows");
+        
+        JTextField rowsField = new JTextField();
+        setGrayBackgroundText("Must Be Between 1 - 50", rowsField);
+        
+        JTextField columnsField = new JTextField();
+        setGrayBackgroundText("Must Be Between 1 - 50", columnsField);
+        
+        JTextField minesField= new JTextField();
+        setGrayBackgroundText("Must be between 1 and 1/3 total # of tiles", minesField);
+        
+        JButton ok = new JButton("OK");
+        JButton cancel = new JButton("Cancel");
+
+        requestInformation.setLayout(new BoxLayout(requestInformation, BoxLayout.PAGE_AXIS));
+        infoSend.setLayout(new FlowLayout());
+
+        requestInformation.add(rows);
+        requestInformation.add(rowsField);
+        requestInformation.add(columns);
+        requestInformation.add(columnsField);
+        requestInformation.add(mines);
+        requestInformation.add(minesField);
+        
+        infoSend.add(ok);
+        infoSend.add(cancel);
+        
+        
+        this.customMaker.add(requestInformation, BorderLayout.PAGE_START);
+        this.customMaker.add(infoSend, BorderLayout.PAGE_END);
+
+        this.customMaker.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        this.customMaker.pack();
+        this.customMaker.setVisible(true);
+		
+		customMaker.setVisible(true);
+		
+		ok.addMouseListener(new MouseListener()
+		{
+
+			@Override
+			public void mouseClicked(MouseEvent e) 
+			{
+				// TODO Auto-generated method stub
+				String rowsString = rowsField.getText();
+				String columnsString = columnsField.getText();
+				String minesString = minesField.getText();
+				
+				boolean invalidInput = false;
+				
+				if(isInteger(rowsString) && isInteger(columnsString) && isInteger(minesString))
+				{
+					int rows = Integer.parseInt(rowsString);
+					int columns = Integer.parseInt(columnsString);
+					int mines = Integer.parseInt(minesString);
+					
+					if(allValidIntegers(rows, columns, mines))
+					{
+						CUSTOM_ROWS = rows;
+						CUSTOM_COLUMNS = columns;
+						CUSTOM_MINES = mines;
+        				gameScreen.setVisible(false);
+        				gameScreen.dispose();
+        				GAME_TYPE = 4;
+						resetSessionCustom();
+						customMaker.setVisible(false);
+						customMaker.dispose();
+						return;
+					}
+					else
+						invalidInput = true;
+				}
+				else
+					invalidInput = true;
+				
+				if(invalidInput)
+				{
+			        rowsField.setText("");
+			        setGrayBackgroundText("Must Be Between 1 - 50", rowsField);
+			        columnsField.setText("");
+			        setGrayBackgroundText("Must Be Between 1 - 50", columnsField);
+			        minesField.setText("");
+			        setGrayBackgroundText("Must be between 1 and 1/3 of total tiles", minesField);
+				}
+
+				
+				
+			}
+
+			@Override
+			public void mouseEntered(MouseEvent arg0) {
+				// TODO Auto-generated method stub
+				
+			}
+
+			@Override
+			public void mouseExited(MouseEvent arg0) {
+				// TODO Auto-generated method stub
+				
+			}
+
+			@Override
+			public void mousePressed(MouseEvent arg0) {
+				// TODO Auto-generated method stub
+				
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent arg0) {
+				// TODO Auto-generated method stub
+				
+			}
+				
+		});
+		
+		
+		
+		
+		cancel.addMouseListener(new MouseListener()
+		{
+
+			@Override
+			public void mouseClicked(MouseEvent e) 
+			{
+				// TODO Auto-generated method stub
+				customMaker.setVisible(false);
+				customMaker.dispose();
+			}
+
+			@Override
+			public void mouseEntered(MouseEvent arg0) {
+				// TODO Auto-generated method stub
+				
+			}
+
+			@Override
+			public void mouseExited(MouseEvent arg0) {
+				// TODO Auto-generated method stub
+				
+			}
+
+			@Override
+			public void mousePressed(MouseEvent arg0) {
+				// TODO Auto-generated method stub
+				
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent arg0) {
+				// TODO Auto-generated method stub
+				
+			}}
+		);
+		
+	}
+	
+	/**
+	 * Helper function to put prompt text into the background.
+	 * 
+	 * @param text		Text you want as ghost-colored text.
+	 * @param box		JTextfield box you want the text to appear in.
+	 */
+	
+	private void setGrayBackgroundText(String text, JTextField box)
+	{
+        TextPrompt myPrompt = new TextPrompt(text, box);
+        myPrompt.setForeground( Color.lightGray );
+	}
+	
+	/**
+	 * Use try/except handler to determine if input from 
+	 * @param target	String from input window to determine if Integer
+	 * @return			boolean for if String input is a valid Integer
+	 */
+	private boolean isInteger(String target)
+	{
+	    try { 
+	        Integer.parseInt(target); 
+	    } catch(NumberFormatException e) { 
+	        return false; 
+	    } catch(NullPointerException e) {
+	        return false;
+	    }
+		return true;
+	}
+	
+	
+	/**
+	 * Function to evaluate if your input numbers match constraint for a given custom game.
+	 * Constraints are that both rows and columns must be between 1 and 50 tiles.
+	 * Also,  # of mines must be between 1 and 1/3 of the total number of tiles. 
+	 * 
+	 * @param row			parsed rows input
+	 * @param column		parsed columns input
+	 * @param mines			parsed mines input
+	 * @return				whether the constraints are met per the comments above
+	 */
+	private boolean allValidIntegers(int row, int column, int mines)
+	{
+		if (row < 1 || row > 50)
+			return false;
+		if(column < 1 || column > 50)
+			return false;
+		if (mines < 1)
+			return false;
+		
+		int product = row*column;
+		
+		if(product <=2)
+		{
+			if (mines == 1)
+				return true;
+		}
+		else
+		{
+			if(product/mines >= 3)
+				return true;
+		}
+		
+		return false;
+
+	}
+	
+	
+	/**
+	 * Function used to reset the game condition to a custom game based.
+	 */
+	private void resetSessionCustom()
+	{
+		this.currentSession = new Game(CUSTOM_ROWS, CUSTOM_COLUMNS, CUSTOM_MINES);
+		this.GAME_TYPE = 4;
+		this.startTime = System.currentTimeMillis();
+		this.gameScreen = new JFrame("Mike Liu Minesweeper");
+		this.gameScreen.setLayout(new BorderLayout());
+		
+		final JMenuBar screenBar = new JMenuBar();
+		
+		this.gameScreen.setJMenuBar(screenBar);
+		this.gameScreen.setVisible(true);
+		
+		
+		this.gameScreen.setSize(OUTSIDE_BORDER);
+		
+		this.boardVisual = new BoardVisual(currentSession.getRows(), currentSession.getColumns());
+		this.flagsAvailable = new JLabel("Flags Available:  "  + currentSession.getRemainingFlags());
+		this.myTimer = new JLabel("Time:  " + (System.currentTimeMillis() - this.startTime)/1000);
+		
+		createSideBar();
+		this.gameScreen.add(this.sideBar, BorderLayout.EAST);
+		this.gameScreen.add(this.boardVisual, BorderLayout.CENTER);
+		
+	}
+	
+	
+	/**
+	 * Used to update the timer Jlabel as the game continues.  Shows number
+	 * of seconds since start of game.
+	 */
+	public void updateTime()
+	{
+		myTimer.setText("Time:  " + (System.currentTimeMillis() - this.startTime)/1000);
+	}
+	
+	
+	//wrapper function to display all non-flagged mines when player loses
+	public void lossUnveil()
+	{
+		this.boardVisual.unveilOnLoss();
+	}
+	
+	
+	/**
+	 * class of how to display the board
+	 * @author mikeliu8492
+	 *
+	 */
+	private class BoardVisual extends JPanel
+	{
+	
+		final TileVisual [][] boardTiles;
+		
+		private int ROWS;
+		private int COLUMNS;
+		
+		
+		/**
+		 * Initialize tiles based on rows and columns
+		 * @param rows
+		 * @param columns
+		 */
+		public BoardVisual(int rows, int columns)
+		{
+			super(new GridLayout(rows, columns));
+			this.ROWS = rows;
+			this.COLUMNS = columns;
+			
+			boardTiles = new TileVisual[this.ROWS][this.COLUMNS];
+			
+			for(int r = 0; r < this.ROWS; r++)
+			{
+				for(int c = 0; c < this.COLUMNS; c++)
+				{
+					final TileVisual tile = new TileVisual(this, r, c);
+					this.boardTiles[r][c] = tile;
+					add(tile);
+				}
+			}
+			
+			
+			//change board size based on how many rows/column and the constant of the tile side length
+			
+			BOARD_SIZE = new Dimension (TILE_SIDE_LENGTH*ROWS, TILE_SIDE_LENGTH*COLUMNS);
+			setPreferredSize(BOARD_SIZE);
+		}
+		
+		
+		/**
+		 * Function to refresh the board when an action is taken
+		 */
+		public void buildNewBoard()
+		{
+			removeAll();
+			for(int row = 0; row < this.ROWS; row++)
+			{
+				for(int col = 0; col < this.COLUMNS; col++)
+				{
+					Tile currentTile = currentSession.getTile(row, col);
+					this.boardTiles[row][col].renderTile(currentTile);
+					add(boardTiles[row][col]);
+				}
+			}
+			validate();
+			repaint();
+		}
+		
+		
+		/**
+		 * Screen wrapper to unveil all mines on game loss:
+		 * -mines that are hidden are unveiled
+		 * -mines that are hidden but flagged are not unveiled
+		 */
+		public void unveilOnLoss()
+		{
+			currentSession.unveilMineWrapper();
+			buildNewBoard();
+		}
+		
+	}
+	
+	
+	
+	
+	/**
+	 * Tile class for the visual depiction of each tile
+	 * @author mikeliu8492
+	 *
+	 */
+	
+	class TileVisual extends JButton
+	{
+		
+		//index of each tile row/column
+		
+		private final int tileRow;
+		private final int tileColumn;
+		
+		
+		public TileVisual(BoardVisual boardVisual, final int tileRow, final int tileColumn)
+		{
+			super();
+			this.tileRow = tileRow;
+			this.tileColumn = tileColumn;
+			
+			//retrieve tile from the backend representation and display its information
+			Tile currentTile = currentSession.getTile(tileRow, tileColumn);
+			this.renderTile(currentTile);
+			
+			addMouseListener(new MouseListener() {
+	            @Override
+	            public void mouseClicked(MouseEvent e) 
+	            {
+	            	
+	            	if(isRightMouseButton(e))
+	            	{
+	            		//right-click used for flagging and updating the flags available Jlabel
+	            		
+	            		currentSession.setFlag(tileRow, tileColumn);
+	            		flagsAvailable.setText("Flags Available:  "  + currentSession.getRemainingFlags());
+	            	}
+	            	else if (isLeftMouseButton(e))
+	            	{
+	            		//left click is used for unveiling tile
+	            		
+	            		currentSession.openPosition(tileRow, tileColumn);
+	            		
+	            	}	         
+	            	
+	            	SwingUtilities.invokeLater(new Runnable()
+    				{
+
+						@Override
+						public void run() 
+						{
+							boardVisual.buildNewBoard();			
+						}
+					});
+	            		
+	            		
+	            }
+
+	            @Override
+	            public void mousePressed(MouseEvent e) { }
+
+	            @Override
+	            public void mouseReleased(MouseEvent e) { }
+
+	            @Override
+	            public void mouseEntered(MouseEvent e) {
+	  
+	            }
+
+	            @Override
+	            public void mouseExited(MouseEvent e) {
+
+	            }
+	        });
+		}
+		
+		
+		/**
+		 * Wrapper for all functions necessary to visualize the tile's current state on board.
+		 * 
+		 * @param currentTile		tile you retrieved reference from the backend
+		 */
+		
+		public void renderTile(Tile currentTile)
+		{
+			removeAll();
+			setColor();
+			showIcon(currentTile);
+			validate();
+			repaint();
+		}
+
+		/**
+		 * Function to show appropriate icons.
+		 * 
+		 * For unhidden tiles, if a mine is present retrieve picture of a mine.
+		 * Otherwise, display the number representing number of surrounding mines.
+		 * 
+		 * For hidden tiles, display a gray box if no flagged.
+		 * Otherwise, retrieve a picture of a flag to display if you flagged it.
+		 * 
+		 * @param currentTile
+		 */
+
+		private void showIcon(Tile currentTile)
+		{
+
+			if(!currentTile.hidden)
+			{
+				try
+				{
+					if(currentTile.minePresent)
+					{
+						final BufferedImage myPiece = ImageIO.read(new File(imagePath + "bomb" +".jpg"));
+						add(new JLabel(new ImageIcon(myPiece)));
+					}
+					else
+					{
+						int neighborCount = (currentTile.surrounding);
+						String surround = Integer.toString(neighborCount);
+						
+						if(neighborCount == 0)
+							this.setForeground(Color.MAGENTA);
+						else if(neighborCount == 1)
+							this.setForeground(Color.BLUE);
+						else if(neighborCount == 2)
+							this.setForeground(new Color(0, 100, 0));
+						else if(neighborCount == 3)
+							this.setForeground(Color.RED);
+						else if(neighborCount == 4)
+							this.setForeground(Color.BLACK);
+						else if(neighborCount == 5)
+							this.setForeground(Color.CYAN);
+						else
+							this.setForeground(Color.ORANGE);
+							
+						this.setText(surround);	
+					}
+
+				}
+				catch(IOException e)
+				{
+					e.printStackTrace();
+				}
+				
+			}
+			else
+			{
+				try
+				{
+					if (currentTile.flag)
+					{
+						final BufferedImage symbol = ImageIO.read(new File(imagePath + "flag" +".jpg"));
+						add(new JLabel(new ImageIcon(symbol)));
+					}
+
+				}
+				catch(IOException e)
+				{
+					e.printStackTrace();
+				}
+			}
+		}
+		
+		
+		/**
+		 * Set the background color of each tile to lightGray with black border.
+		 */
+		private void setColor()
+		{
+			
+			this.setBackground(Color.lightGray);
+			Border blackline = BorderFactory.createLineBorder(Color.black);
+			this.setBorder(blackline);
+		}
+	}
+	
+	
+	/**
+	 * 
+	 * @return		determine if player has won current game
+	 */
+	public boolean winner()
+	{
+		return currentSession.getWin();
+	}
+	
+	
+	/**
+	 * 
+	 * @return		determine if player has lost current game
+	 */
+	public boolean loser()
+	{
+		return currentSession.getLoss();
+	}
+	
+	
+	/**
+	 * Opens up a Jframe to display win/loss status.
+	 * Also tells the cumulative score across differing sessions.
+	 * 
+	 */
+	public void displayResults()
+	{
+		
+		String record = "";
+		String scoreDisplay = "";
+		
+		if(this.currentSession.getWin())
+		{
+			wins++;
+			record = "\nWins:  " + wins + "\nLosses:  " + losses;
+			trackedScore += calculateWinScore();
+			scoreDisplay = "\nCurrentScore:  " + trackedScore;
+			displayDialogueMessages("YOU WIN", "YOU WIN!" + record + scoreDisplay);
+		}
+		if(this.currentSession.getLoss())
+		{
+			losses++;
+			record = "\nWins:  " + wins + "\nLosses:  " + losses;
+			trackedScore += calculateLossScore();
+			scoreDisplay = "\nCurrentScore:  " + trackedScore;
+			displayDialogueMessages("YOU LOSE!", "YOU LOSE!" + record + scoreDisplay);
+		}
+		
+		
+		
+
+	}
+	
+	
+	/**
+	 * 
+	 * Player will lose a set number of points for losing a game.
+	 * 
+	 * 1) Beginner - 5 points
+	 * 2) Intermediate - 10 points
+	 * 3) Expert - 20 points
+	 * 4) Custom - 10 points
+	 * 
+	 * @return		how many points a player will lose
+	 */
+	private double calculateLossScore()
+	{
+		if(this.GAME_TYPE == 1)
+			return this.BEGINNER_PENALTY;
+		if(this.GAME_TYPE == 2)
+			return this.INTERMEDIATE_PENALTY;
+		if(this.GAME_TYPE == 3)
+			return this.EXPERT_PENALTY;
+			
+		
+		return -10;
+	}
+	
+	/**
+	 * Player will win by a fixed amount of points plus a time bonus.
+	 * 
+	 * The bonus is the product of the following:
+	 * 1) a weight customized for each difficulty level
+	 * 2) 1 - (end_time - start_time)/maximum_allowable_time_in_difficulty
+	 * 		- if (2) <= 0, then then (2) is set to 0.  i.e. player gets no bonus
+	 * 
+	 * If it is a custom game, then you simply gain 10 points per win.
+	 * 
+	 * @return		number of points gained per win
+	 */
+	
+	private double calculateWinScore()
+	{
+		double difference = System.currentTimeMillis() - this.startTime;
+		double factor = 1;
+		if(this.GAME_TYPE == 1)
+		{
+			factor = calculateTimeFactor(difference, MAX_BEGINNER_TIME);
+			return this.BEGINNER_WIN_BASE + factor*this.BEGINNER_WIN_WEIGHT;
+		}
+			
+		if(this.GAME_TYPE == 2)
+		{
+			factor = calculateTimeFactor(difference, MAX_INTERMEDIATE_TIME);
+			return this.INTERMEDIATE_WIN_BASE + factor*this.INTERMEDIATE_WIN_WEIGHT;
+		}
+			
+		if(this.GAME_TYPE == 3)
+		{
+			factor = calculateTimeFactor(difference, MAX_EXPERT_TIME);
+			return this.EXPERT_WIN_BASE + factor*this.EXPERT_WIN_WEIGHT;
+		}
+			
+		
+		
+		return 10;
+	}
+	
+	/**
+	 * 
+	 * @param timeDifference		difference between the game's end time and start time
+	 * @param maxTime				maximum allowable time per game difficulty
+	 * @return						% of score to earn for time bonus
+	 */
+	private double calculateTimeFactor(double timeDifference, double maxTime)
+	{
+		double factor = 1- timeDifference/maxTime;
+		if (factor < 0)
+			factor = 0;
+		
+		return factor;
+	}
+	
+	/**
+	 * function for creating dialogue message box
+	 * @param Title			string in title bar
+	 * @param Message		string in Jframe message box
+	 */
+	private void displayDialogueMessages(String Title, String Message)
+	{
+		JFrame frame = new JFrame(Title);
+		frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE); 
+		JOptionPane.showMessageDialog(frame, Message);
+	    frame.pack();
+	    frame.setVisible(true);
+	}
+	
+	
+	/**
+	 * Wrapper function for the screen to call the Game objects to see if win condition is met
+	 */
+	public void checkIfWin()
+	{
+		currentSession.checkWinCondition();
+	}
+	
+	/**
+	 * Function to show solution of gameboard in console for debugging
+	 */
+	
+	public void showSolutionInConsole()
+	{
+		this.currentSession.printDebugMode();
+	}
+	
+	
+	/**
+	 * Create the sidebar with a series of buttons for resetting the game
+	 * and your Jlabel to show time and flags available statistics.
+	 */
+	
+	private void createSideBar()
+	{
+        sideBar = new JPanel(new GridLayout(0, 1));
+        sideBar.setSize(SIDEBAR_SIZE);
+        
+        sideBar.add (new sideOptionButton(1));
+        sideBar.add (new sideOptionButton(2));
+        sideBar.add (new sideOptionButton(3));
+        sideBar.add (new sideOptionButton(4));
+        sideBar.add(new sideOptionButton(5));
+        
+        sideBar.add(flagsAvailable);
+        sideBar.add(myTimer);
+        sideBar.setVisible(true);
+	}
+	
+	
+	
+	/**
+	 * Create the sideBar option buttons with appropriate labels
+	 * @author mikeliu8492
+	 *
+	 */
+	private class sideOptionButton extends JButton
+	{
+		protected int optionVar;
+		
+		public sideOptionButton(int var)
+		{
+			
+			super();
+			optionVar = var;
+    		switch(optionVar)
+    		{
+    			case 1:
+    				this.setText("Beginner");
+    				break;
+    			case 2:
+    				this.setText("Intermediate");
+    				break;
+    			case 3:
+    				this.setText("Expert");
+    				break;
+    			case 4:
+    				this.setText("Reset Current Mode");
+    				break;
+    			case 5:
+    				this.setText("Custom Game");
+    				break;
+    				
+    		}
+			
+			this.setPreferredSize(SIDEBAR_BUTTON_SIZE);
+			
+			/**
+			 * For these buttons, mostly we will dispose of the current JFrame
+			 * and load a new game.
+			 * 
+			 * The only exception is the custom game.  Only when valid input 
+			 * is accepted is the screen reloaded to start a new game.
+			 */
+			addMouseListener(new MouseListener() {
+	            @Override
+	            public void mouseClicked(MouseEvent e) 
+	            {
+	            	
+	            	if(isLeftMouseButton(e))
+	            	{
+	            		switch(optionVar)
+	            		{
+	            			case 1:
+	            				gameScreen.setVisible(false);
+	            				gameScreen.dispose();
+	            				initializeSession(1);
+	            				break;
+	            			case 2:
+	            				gameScreen.setVisible(false);
+	            				gameScreen.dispose();
+	            				initializeSession(2);
+	            				break;
+	            			case 3:
+	            				gameScreen.setVisible(false);
+	            				gameScreen.dispose();
+	            				initializeSession(3);
+	            				break;
+	            			case 4:
+	            				gameScreen.setVisible(false);
+	            				gameScreen.dispose();
+	            				if(GAME_TYPE != 4)
+	            					initializeSession(GAME_TYPE);
+	            				else
+	            					resetSessionCustom();
+	            				break;
+	            			case 5:
+	            				showCustomSetter();
+	            				break;
+	            			default:
+	            				System.out.println("NOT SUPPOSE TO BE HERE!");
+	            				break;
+	            				
+	            				
+	            		}
+	            			
+	            	}
+	  
+	            		
+	            }
+
+	            @Override
+	            public void mousePressed(MouseEvent e) { }
+
+	            @Override
+	            public void mouseReleased(MouseEvent e) { }
+
+	            @Override
+	            public void mouseEntered(MouseEvent e) {
+	  
+	            }
+
+	            @Override
+	            public void mouseExited(MouseEvent e) {
+
+	            }
+	        });
+			
+			
+		}	
+	}
+	
+	
+
+}
+	
+

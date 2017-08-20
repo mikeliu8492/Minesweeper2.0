@@ -1,0 +1,580 @@
+package GameBackend;
+
+import Driver.*;
+
+import javax.imageio.ImageIO;
+import javax.swing.*;
+import javax.swing.event.AncestorListener;
+
+import java.awt.*;
+import java.awt.event.ActionListener;
+import java.awt.event.InputEvent;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.IOException;
+import java.awt.event.ActionEvent;
+
+
+import javax.imageio.ImageIO;
+import javax.swing.*;
+import javax.swing.border.Border;
+import java.awt.*;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.IOException;
+import java.util.*;
+
+import static javax.swing.SwingUtilities.isLeftMouseButton;
+import static javax.swing.SwingUtilities.isRightMouseButton;
+
+public class Screen 
+{
+	private JFrame gameScreen;
+	private BoardVisual boardVisual;
+	public Game currentSession;
+	
+	//Tracks overall wins/loss for the opened session
+	private int wins = 0;
+	private int losses = 0;
+	
+	//tracks the weighted score
+	private double trackedScore = 0;
+	
+	/**
+	 * Dimension constants
+	 */
+	
+	public static Dimension OUTSIDE_BORDER = new Dimension(2000, 2000);
+	public static Dimension BOARD_SIZE;
+	public static int TILE_SIDE_LENGTH = 20;
+	public static Dimension SIDEBAR_SIZE = new Dimension(640, 160); 
+	public static Dimension SIDEBAR_BUTTON_SIZE = new Dimension(160, 20);
+
+	private static String imagePath = "..\\Final1\\Pictures\\";
+
+	/**
+	 * Scoring constants
+	 */
+	
+	private int GAME_TYPE = 0;
+	private int MAX_BEGINNER_TIME = 60000;
+	private int MAX_INTERMEDIATE_TIME = 240000;
+	private int MAX_EXPERT_TIME = 480000;
+	
+	//start time for each session to keep track of score
+	private long startTime = 0;
+	
+	private JPanel sideBar;
+	private JLabel flagsAvailable;
+	
+	/**
+	 * Gui wrapper for if the game is over
+	 * @return if a "game over" condition is met (more of that in the Game class)
+	 */
+	public boolean gameOver()
+	{
+		return currentSession.gameOver();
+	}
+	
+	/**
+	 * Initialize the board
+	 * @param option
+	 */
+	
+	public Screen(int option)
+	{
+		this.initializeSession(option);
+	}
+	
+	private void initializeSession(int option)
+	{
+		this.currentSession = new Game(option);
+		this.GAME_TYPE = option;
+		this.startTime = System.currentTimeMillis();
+		this.gameScreen = new JFrame("Mike Liu Minesweeper");
+		this.gameScreen.setLayout(new BorderLayout());
+		
+		final JMenuBar screenBar = new JMenuBar();
+		
+		this.gameScreen.setJMenuBar(screenBar);
+		this.gameScreen.setVisible(true);
+		
+		
+		this.gameScreen.setSize(OUTSIDE_BORDER);
+		
+		this.boardVisual = new BoardVisual(currentSession.getRows(), currentSession.getColumns());
+		this.flagsAvailable = new JLabel("Flags Available:  "  + currentSession.getRemainingFlags());
+		
+		OUTSIDE_BORDER = new Dimension(1000, 1000);
+		SIDEBAR_SIZE = new Dimension(640, 160); 
+		SIDEBAR_BUTTON_SIZE = new Dimension(160, 20);
+		
+		createSideBar();
+		this.gameScreen.add(this.sideBar, BorderLayout.EAST);
+		this.gameScreen.add(this.boardVisual, BorderLayout.CENTER);
+	}
+	
+	private void resetSession(int option)
+	{
+		System.out.println("entering reset");
+		this.currentSession = new Game(option);
+		this.GAME_TYPE = option;
+		this.flagsAvailable = new JLabel("Flags Available:  "  + currentSession.getRemainingFlags());
+		this.startTime = System.currentTimeMillis();
+		this.boardVisual = new BoardVisual(currentSession.getRows(), currentSession.getColumns());
+		this.gameScreen.add(this.boardVisual, BorderLayout.CENTER);
+	}
+	
+	public void lossUnveil()
+	{
+		this.boardVisual.unveilOnLoss();
+	}
+	
+	private class BoardVisual extends JPanel
+	{
+	
+		final TileVisual [][] boardTiles;
+		
+		private int ROWS;
+		private int COLUMNS;
+		
+		public BoardVisual(int rows, int columns)
+		{
+			super(new GridLayout(rows, columns));
+			this.ROWS = rows;
+			this.COLUMNS = columns;
+			
+			boardTiles = new TileVisual[this.ROWS][this.COLUMNS];
+			
+			for(int r = 0; r < this.ROWS; r++)
+			{
+				for(int c = 0; c < this.COLUMNS; c++)
+				{
+					final TileVisual tile = new TileVisual(this, r, c);
+					this.boardTiles[r][c] = tile;
+					add(tile);
+				}
+			}
+			
+			BOARD_SIZE = new Dimension (TILE_SIDE_LENGTH*ROWS, TILE_SIDE_LENGTH*COLUMNS);
+			setPreferredSize(BOARD_SIZE);
+		}
+		
+		public void buildNewBoard()
+		{
+			removeAll();
+			for(int row = 0; row < this.ROWS; row++)
+			{
+				for(int col = 0; col < this.COLUMNS; col++)
+				{
+					Tile currentTile = currentSession.getTile(row, col);
+					this.boardTiles[row][col].renderTile(currentTile);
+					add(boardTiles[row][col]);
+				}
+			}
+			validate();
+			repaint();
+		}
+		
+		
+		/**
+		 * Screen wrapper to unveil all mines on game loss:
+		 * -mines that are hidden are unveiled
+		 * -mines that are hidden but flagged are not unveiled
+		 */
+		public void unveilOnLoss()
+		{
+			currentSession.unveilMineWrapper();
+			buildNewBoard();
+		}
+		
+	}
+	
+	class TileVisual extends JButton
+	{
+		private final int tileRow;
+		private final int tileColumn;
+		
+		
+		public TileVisual(BoardVisual boardVisual, final int tileRow, final int tileColumn)
+		{
+			super();
+			this.tileRow = tileRow;
+			this.tileColumn = tileColumn;
+			
+			Tile currentTile = currentSession.getTile(tileRow, tileColumn);
+			this.renderTile(currentTile);
+			
+			addMouseListener(new MouseListener() {
+	            @Override
+	            public void mouseClicked(MouseEvent e) 
+	            {
+	            	
+	            	if(isRightMouseButton(e))
+	            	{
+	            		
+	            		currentSession.setFlag(tileRow, tileColumn);
+	            		flagsAvailable.setText("Flags Available:  "  + currentSession.getRemainingFlags());
+	            	}
+	            	else if (isLeftMouseButton(e))
+	            	{
+	            		
+	            		currentSession.openPosition(tileRow, tileColumn);
+	            		
+	            	}	         
+	            	
+	            	SwingUtilities.invokeLater(new Runnable()
+    				{
+
+						@Override
+						public void run() 
+						{
+							boardVisual.buildNewBoard();			
+						}
+					});
+	            		
+	            		
+	            }
+
+	            @Override
+	            public void mousePressed(MouseEvent e) { }
+
+	            @Override
+	            public void mouseReleased(MouseEvent e) { }
+
+	            @Override
+	            public void mouseEntered(MouseEvent e) {
+	  
+	            }
+
+	            @Override
+	            public void mouseExited(MouseEvent e) {
+
+	            }
+	        });
+		}
+		
+		
+		
+		public void renderTile(Tile currentTile)
+		{
+			removeAll();
+			setColor();
+			showIcon(currentTile);
+			validate();
+			repaint();
+		}
+
+
+
+		private void showIcon(Tile currentTile)
+		{
+
+			if(!currentTile.hidden)
+			{
+				try
+				{
+					if(currentTile.minePresent)
+					{
+						final BufferedImage myPiece = ImageIO.read(new File(imagePath + "bomb" +".jpg"));
+						add(new JLabel(new ImageIcon(myPiece)));
+					}
+					else
+					{
+						int neighborCount = (currentTile.surrounding);
+						String surround = Integer.toString(neighborCount);
+						
+						if(neighborCount == 0)
+							this.setForeground(Color.MAGENTA);
+						else if(neighborCount == 1)
+							this.setForeground(Color.BLUE);
+						else if(neighborCount == 2)
+							this.setForeground(new Color(0, 100, 0));
+						else if(neighborCount == 3)
+							this.setForeground(Color.RED);
+						else if(neighborCount == 4)
+							this.setForeground(Color.BLACK);
+						else if(neighborCount == 5)
+							this.setForeground(Color.CYAN);
+						else
+							this.setForeground(Color.ORANGE);
+							
+						this.setText(surround);	
+					}
+
+				}
+				catch(IOException e)
+				{
+					e.printStackTrace();
+				}
+				
+			}
+			else
+			{
+				try
+				{
+					if (currentTile.flag)
+					{
+						final BufferedImage symbol = ImageIO.read(new File(imagePath + "flag" +".jpg"));
+						add(new JLabel(new ImageIcon(symbol)));
+					}
+
+				}
+				catch(IOException e)
+				{
+					e.printStackTrace();
+				}
+			}
+		}
+		
+		
+		private void setColor()
+		{
+			
+			this.setBackground(Color.lightGray);
+			Border blackline = BorderFactory.createLineBorder(Color.black);
+			this.setBorder(blackline);
+		}
+	}
+	
+	public boolean winner()
+	{
+		return currentSession.getWin();
+	}
+	
+	public boolean loser()
+	{
+		return currentSession.getLoss();
+	}
+	
+	public void displayResults()
+	{
+		
+		String record = "";
+		String scoreDisplay = "";
+		
+		if(this.currentSession.getWin())
+		{
+			wins++;
+			record = "\nWins:  " + wins + "\nLosses:  " + losses;
+			trackedScore += calculateWinScore();
+			scoreDisplay = "\nCurrentScore:  " + trackedScore;
+			displayDialogueMessages("YOU WIN", "YOU WIN!" + record + scoreDisplay);
+		}
+		if(this.currentSession.getLoss())
+		{
+			losses++;
+			record = "\nWins:  " + wins + "\nLosses:  " + losses;
+			trackedScore += calculateLossScore();
+			scoreDisplay = "\nCurrentScore:  " + trackedScore;
+			displayDialogueMessages("YOU LOSE!", "YOU LOSE!" + record + scoreDisplay);
+		}
+		
+		
+		
+
+	}
+	
+	private double calculateLossScore()
+	{
+		if(this.GAME_TYPE == 1)
+			return -5;
+		if(this.GAME_TYPE == 2)
+			return -10;
+		if(this.GAME_TYPE == 3)
+			return -20;
+			
+		
+		return -10;
+	}
+	
+	private double calculateWinScore()
+	{
+		double difference = System.currentTimeMillis() - this.startTime;
+		System.out.println("difference:  " + difference);
+		double factor = 1;
+		if(this.GAME_TYPE == 1)
+		{
+			factor = calculateTimeFactor(difference, MAX_BEGINNER_TIME);
+			return 4 + factor*8;
+		}
+			
+		if(this.GAME_TYPE == 2)
+		{
+			factor = calculateTimeFactor(difference, MAX_INTERMEDIATE_TIME);
+			System.out.println("factor:  " + factor);
+			return 8 + factor*16;
+		}
+			
+		if(this.GAME_TYPE == 3)
+		{
+			factor = calculateTimeFactor(difference, MAX_EXPERT_TIME);
+			return 15 + difference/MAX_EXPERT_TIME*20;
+		}
+			
+		
+		
+		return 10;
+	}
+	
+	
+	private double calculateTimeFactor(double timeDifference, double maxTime)
+	{
+		double factor = 1- timeDifference/maxTime;
+		if (factor < 0)
+			factor = 0;
+		
+		return factor;
+	}
+	
+	/**
+	 * function for creating 
+	 * @param Title			string in title bar
+	 * @param Message		string in Jframe message box
+	 */
+	private void displayDialogueMessages(String Title, String Message)
+	{
+		JFrame frame = new JFrame(Title);
+		frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE); 
+		JOptionPane.showMessageDialog(frame, Message);
+	    frame.pack();
+	    frame.setVisible(true);
+	}
+	
+	
+	/**
+	 * Wrapper function for the screen to call the Game objects to see if win condition is met
+	 */
+	public void checkIfWin()
+	{
+		currentSession.checkWinCondition();
+	}
+	
+	/**
+	 * Function to show solution of gameboard in console for debugging
+	 */
+	
+	public void showSolutionInConsole()
+	{
+		this.currentSession.printDebugMode();
+	}
+	
+	
+	
+	
+	private void createSideBar()
+	{
+		System.out.println("created sidebar");
+        sideBar = new JPanel(new GridLayout(0, 1));
+        sideBar.setSize(SIDEBAR_SIZE);
+        
+        sideBar.add (new sideOptionButton(1));
+        sideBar.add (new sideOptionButton(2));
+        sideBar.add (new sideOptionButton(3));
+        sideBar.add (new sideOptionButton(4));
+        
+        sideBar.add(flagsAvailable);
+        
+        sideBar.setVisible(true);
+	}
+	
+	
+	private class sideOptionButton extends JButton
+	{
+		protected int optionVar;
+		
+		public sideOptionButton(int var)
+		{
+			
+			super();
+			optionVar = var;
+    		switch(optionVar)
+    		{
+    			case 1:
+    				this.setText("Beginner");
+    				break;
+    			case 2:
+    				this.setText("Intermediate");
+    				break;
+    			case 3:
+    				this.setText("Expert");
+    				break;
+    			case 4:
+    				this.setText("Reset CurrentMode");
+    				
+    		}
+			
+			this.setPreferredSize(SIDEBAR_BUTTON_SIZE);
+			
+			
+			addMouseListener(new MouseListener() {
+	            @Override
+	            public void mouseClicked(MouseEvent e) 
+	            {
+	            	
+	            	if(isLeftMouseButton(e))
+	            	{
+	            		switch(optionVar)
+	            		{
+	            			case 1:
+	            				gameScreen.setVisible(false);
+	            				gameScreen.dispose();
+	            				initializeSession(1);
+	            				break;
+	            			case 2:
+	            				gameScreen.setVisible(false);
+	            				gameScreen.dispose();
+	            				initializeSession(2);
+	            				break;
+	            			case 3:
+	            				gameScreen.setVisible(false);
+	            				gameScreen.dispose();
+	            				initializeSession(3);
+	            				break;
+	            			case 4:
+	            				gameScreen.setVisible(false);
+	            				gameScreen.dispose();
+	            				initializeSession(GAME_TYPE);
+	            				break;
+	            			default:
+	            				System.out.println("NOT SUPPOSE TO BE HERE!");
+	            				break;
+	            				
+	            				
+	            		}
+	            			
+	            	}
+	  
+	            		
+	            }
+
+	            @Override
+	            public void mousePressed(MouseEvent e) { }
+
+	            @Override
+	            public void mouseReleased(MouseEvent e) { }
+
+	            @Override
+	            public void mouseEntered(MouseEvent e) {
+	  
+	            }
+
+	            @Override
+	            public void mouseExited(MouseEvent e) {
+
+	            }
+	        });
+			
+			
+		}	
+	}
+	
+	
+
+}
+	
+
